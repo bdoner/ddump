@@ -45,11 +45,11 @@ func main() {
 	for i := 0; i < len(*subdomains); i++ {
 		res := <-resolved
 
-		fmt.Printf("  └ %s\n", res.Domain)
+		fmt.Printf("%s\n", res.Domain)
 		if 0 < len(res.Records) {
 			for _, v := range res.Records {
 				if v.Error != nil {
-					//fmt.Printf("    └ Error: %v\n", v.Error)
+					//fmt.Printf("Error: %v\n", v.Error)
 					continue
 				}
 
@@ -57,7 +57,7 @@ func main() {
 					continue
 				}
 
-				fmt.Printf("    └ %6s %s\n", v.Type, v.Answer)
+				fmt.Printf("  %6s: %s\n", v.Type, v.Answer)
 			}
 		}
 	}
@@ -65,7 +65,7 @@ func main() {
 }
 
 func parseFlags() {
-	flag.StringVar(&conf.domain, "domain", "", "The domain to dump data for.")
+	flag.StringVar(&conf.domain, "d", "", "The domain to dump data for.")
 	flag.Parse()
 
 	if flag.NFlag() < 1 {
