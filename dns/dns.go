@@ -3,12 +3,12 @@ package dns
 import (
 	"fmt"
 	"net"
+	"sync"
 )
 
 // ResolverSettings determins the behavior of Resolve(string)
 type ResolverSettings struct {
 	RecordTypes []string
-	DNSServers  []net.IP
 }
 
 // ResolveResult is a domain with all it's records
@@ -21,7 +21,6 @@ type ResolveResult struct {
 type Record struct {
 	Type   string
 	Answer string
-	Pref   uint16
 	Error  error
 }
 
@@ -29,12 +28,13 @@ type Record struct {
 func GetDefaultResolver() *ResolverSettings {
 	return &ResolverSettings{
 		RecordTypes: []string{"A", "AAAA", "TXT", "CNAME", "MX", "NS"},
-		DNSServers:  []net.IP{net.IPv4(1, 1, 1, 1)},
 	}
 }
 
 // Resolve resolves a fully qualified domain name's records into a Record struct
-func (resolver *ResolverSettings) Resolve(fqdn string, resultChan chan<- ResolveResult) {
+func (resolver *ResolverSettings) Resolve(fqdn string, responses *[]ResolveResult, wg *sync.WaitGroup) {
+
+	defer wg.Done()
 
 	result := ResolveResult{
 		Domain: fqdn,
@@ -51,12 +51,19 @@ func (resolver *ResolverSettings) Resolve(fqdn string, resultChan chan<- Resolve
 		case "A", "AAAA":
 			ips, err := net.LookupIP(fqdn)
 			if err != nil {
-				r.Error = fmt.Errorf("error resolving %s's %s record: %v", fqdn, rec, err)
-				result.Records = append(result.Records, r)
 				continue
 			}
 
 			for _, i := range ips {
+				if c := i.To4(); c == nil {
+					if r.Type != "AAAA" {
+						continue
+					}
+				} else {
+					if r.Type != "A" {
+						continue
+					}
+				}
 				r.Answer = i.String()
 				result.Records = append(result.Records, r)
 			}
@@ -64,8 +71,7 @@ func (resolver *ResolverSettings) Resolve(fqdn string, resultChan chan<- Resolve
 		case "TXT":
 			txts, err := net.LookupTXT(fqdn)
 			if err != nil {
-				r.Error = fmt.Errorf("error resolving %s's %s record: %v", fqdn, rec, err)
-				result.Records = append(result.Records, r)
+				continue
 			}
 
 			for _, i := range txts {
@@ -76,8 +82,7 @@ func (resolver *ResolverSettings) Resolve(fqdn string, resultChan chan<- Resolve
 		case "CNAME":
 			cname, err := net.LookupCNAME(fqdn)
 			if err != nil {
-				r.Error = fmt.Errorf("error resolving %s's %s record: %v", fqdn, rec, err)
-				result.Records = append(result.Records, r)
+				continue
 			}
 
 			r.Answer = cname
@@ -86,21 +91,18 @@ func (resolver *ResolverSettings) Resolve(fqdn string, resultChan chan<- Resolve
 		case "MX":
 			mxs, err := net.LookupMX(fqdn)
 			if err != nil {
-				r.Error = fmt.Errorf("error resolving %s's %s record: %v", fqdn, rec, err)
-				result.Records = append(result.Records, r)
+				continue
 			}
 
 			for _, i := range mxs {
-				r.Answer = i.Host
-				r.Pref = i.Pref
+				r.Answer = fmt.Sprintf("%d %s", i.Pref, i.Host)
 				result.Records = append(result.Records, r)
 			}
 
 		case "NS":
 			nss, err := net.LookupNS(fqdn)
 			if err != nil {
-				r.Error = fmt.Errorf("error resolving %s's %s record: %v", fqdn, rec, err)
-				result.Records = append(result.Records, r)
+				continue
 			}
 
 			for _, i := range nss {
@@ -125,5 +127,5 @@ func (resolver *ResolverSettings) Resolve(fqdn string, resultChan chan<- Resolve
 		}
 	}
 
-	resultChan <- result
+	*responses = append(*responses, result)
 }

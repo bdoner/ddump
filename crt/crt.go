@@ -33,7 +33,13 @@ func OpenDatabaseConnection() error {
 }
 
 // QueryDomain finds all unique subdomains ever used with a given domain
-func QueryDomain(domain string) (*[]string, error) {
+func QueryDomain(domain string, onlyTop bool) (*[]string, error) {
+	subDomains := make([]string, 1)
+	subDomains[0] = domain
+	if onlyTop {
+		return &subDomains, nil
+	}
+
 	if !conf.dbOpen {
 		return nil, fmt.Errorf("open the database before use")
 	}
@@ -43,8 +49,6 @@ func QueryDomain(domain string) (*[]string, error) {
 		return nil, fmt.Errorf("error querying database: %v", err)
 	}
 
-	subDomains := make([]string, 1)
-	subDomains[0] = domain
 	for rows.Next() {
 		t := ""
 		subDomains = append(subDomains, t)

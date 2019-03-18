@@ -4,18 +4,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 
 	"github.com/bdoner/ddump/crt"
 	"github.com/bdoner/ddump/dns"
-	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-var cfgFile string
-
 type config struct {
-	domain string
+	domain        string
+	topDomainOnly bool
 }
 
 var conf config
@@ -40,14 +38,14 @@ func Execute() {
 }
 
 func runProgram(cmd *cobra.Command, args []string) {
-	fmt.Printf("Looking for subdomains for:\n%s\n", conf.domain)
+	fmt.Printf("Looking for subdomains for: %s\n", conf.domain)
 
 	err := crt.OpenDatabaseConnection()
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 
-	subdomains, err := crt.QueryDomain(conf.domain)
+	subdomains, err := crt.QueryDomain(conf.domain, conf.topDomainOnly)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
@@ -56,15 +54,23 @@ func runProgram(cmd *cobra.Command, args []string) {
 		log.Fatalf("%v", err)
 	}
 
-	resolved := make(chan dns.ResolveResult, len(*subdomains))
+	responses := make([]dns.ResolveResult, len(*subdomains))
 	resolver := dns.GetDefaultResolver()
 
+	var wg sync.WaitGroup
+
 	for _, v := range *subdomains {
-		go resolver.Resolve(v, resolved)
+		wg.Add(1)
+		go resolver.Resolve(v, &responses, &wg)
 	}
 
-	for i := 0; i < len(*subdomains); i++ {
-		res := <-resolved
+	wg.Wait()
+
+	for _, res := range responses {
+
+		if res.Domain == "" {
+			continue
+		}
 
 		fmt.Printf("%s\n", res.Domain)
 		if 0 < len(res.Records) {
@@ -86,41 +92,8 @@ func runProgram(cmd *cobra.Command, args []string) {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-	//rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.ddump.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
 	rootCmd.Flags().StringVarP(&conf.domain, "domain", "d", "", "Domain to dump data for")
 	rootCmd.MarkFlagRequired("domain")
-}
+	rootCmd.Flags().BoolVarP(&conf.topDomainOnly, "top-only", "t", false, "Do not find subdomains. Only lookup the given domain name.")
 
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := homedir.Dir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		// Search config in home directory with name ".ddump" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".ddump")
-	}
-
-	viper.AutomaticEnv() // read in environment variables that match
-
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	}
 }
